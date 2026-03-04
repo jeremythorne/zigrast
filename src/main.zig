@@ -3,6 +3,11 @@ const Io = std.Io;
 
 const zigrast = @import("zigrast");
 
+fn fs(varying: zigrast.Varying, uniforms: anytype) zigrast.Vec4 {
+    _ = uniforms;
+    return varying[0];
+}
+
 pub fn main(init: std.process.Init) !void {
     // Prints to stderr, unbuffered, ignoring potential errors.
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
@@ -27,12 +32,17 @@ pub fn main(init: std.process.Init) !void {
     const c = zigrast.Vec4{ .x = 60, .y = 230, .z = 0, .w = 1 };
     // const color = zigrast.Color{ .r = 0xff, .g = 0, .b = 0, .a = 0xff };
     // const uniforms = zigrast.Uniforms{ .color = color };
-    const varyings = zigrast.Varyings{
-        .a = zigrast.Vec4{ .x = 1.0, .y = 0.0, .z = 0.0, .w = 1 },
-        .b = zigrast.Vec4{ .x = 0.0, .y = 1.0, .z = 0.0, .w = 1 },
-        .c = zigrast.Vec4{ .x = 0.0, .y = 0.0, .z = 1.0, .w = 1 },
+    var varying_storage: [3]zigrast.Vec4 = undefined;
+    const varyings: zigrast.Varyings = .init(1, &varying_storage);
+    varyings.v[0][0] = zigrast.Vec4{ .x = 1.0, .y = 0.0, .z = 0.0, .w = 1 };
+    varyings.v[1][0] = zigrast.Vec4{ .x = 0.0, .y = 1.0, .z = 0.0, .w = 1 };
+    varyings.v[2][0] = zigrast.Vec4{ .x = 0.0, .y = 0.0, .z = 1.0, .w = 1 };
+
+    const v = [3]zigrast.Vec4{ a, b, c };
+    const triangle = zigrast.Triangle{
+        .v = v,
     };
-    zigrast.drawTriangle(image, a, b, c, varyings);
+    zigrast.drawTriangle(image, triangle, 1, varyings, .{}, fs);
 
     const file = try Io.Dir.createFile(
         Io.Dir.cwd(),
