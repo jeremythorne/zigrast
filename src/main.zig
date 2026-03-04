@@ -3,10 +3,23 @@ const Io = std.Io;
 
 const zigrast = @import("zigrast");
 
-pub fn main(init: std.process.Init) !void {
-    // Prints to stderr, unbuffered, ignoring potential errors.
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+const Attribute = struct {
+    pos: zigrast.Vec4,
+    color: zigrast.Vec4,
+};
 
+fn vs(attribute: Attribute, uniforms: anytype, out: zigrast.Varying) zigrast.Vec4 {
+    _ = uniforms;
+    out[0] = attribute.color;
+    return attribute.pos;
+}
+
+fn fs(varying: zigrast.Varying, uniforms: anytype) zigrast.Vec4 {
+    _ = uniforms;
+    return varying[0];
+}
+
+pub fn main(init: std.process.Init) !void {
     // This is appropriate for anything that lives as long as the process.
     const arena: std.mem.Allocator = init.arena.allocator();
 
@@ -22,17 +35,28 @@ pub fn main(init: std.process.Init) !void {
     const image = try zigrast.Image.init(arena, 320, 240);
     defer image.deinit(arena);
 
-    const a = zigrast.Vec4{ .x = 10, .y = 10, .z = 0, .w = 1 };
-    const b = zigrast.Vec4{ .x = 300, .y = 120, .z = 0, .w = 1 };
-    const c = zigrast.Vec4{ .x = 60, .y = 230, .z = 0, .w = 1 };
-    // const color = zigrast.Color{ .r = 0xff, .g = 0, .b = 0, .a = 0xff };
-    // const uniforms = zigrast.Uniforms{ .color = color };
-    const varyings = zigrast.Varyings{
-        .a = zigrast.Vec4{ .x = 1.0, .y = 0.0, .z = 0.0, .w = 1 },
-        .b = zigrast.Vec4{ .x = 0.0, .y = 1.0, .z = 0.0, .w = 1 },
-        .c = zigrast.Vec4{ .x = 0.0, .y = 0.0, .z = 1.0, .w = 1 },
+    const pipeline = zigrast.Pipeline{
+        .vertexShade = vs,
+        .fragmentShade = fs,
+        .varyings_len = 1,
+        .attributes_type = Attribute,
     };
-    zigrast.drawTriangle(image, a, b, c, varyings);
+    const attributes = [3]Attribute{
+        Attribute{
+            .pos = zigrast.Vec4{ .x = 10, .y = 10, .z = 0, .w = 1 },
+            .color = zigrast.Vec4{ .x = 1.0, .y = 0.0, .z = 0.0, .w = 1 },
+        },
+        Attribute{
+            .pos = zigrast.Vec4{ .x = 300, .y = 120, .z = 0, .w = 1 },
+            .color = zigrast.Vec4{ .x = 0.0, .y = 1.0, .z = 0.0, .w = 1 },
+        },
+        Attribute{
+            .pos = zigrast.Vec4{ .x = 60, .y = 230, .z = 0, .w = 1 },
+            .color = zigrast.Vec4{ .x = 0.0, .y = 0.0, .z = 1.0, .w = 1 },
+        },
+    };
+
+    zigrast.drawTriangles(pipeline, &attributes, {}, image);
 
     const file = try Io.Dir.createFile(
         Io.Dir.cwd(),
@@ -44,16 +68,6 @@ pub fn main(init: std.process.Init) !void {
     var buffer: [1024]u8 = undefined;
     var w: Io.File.Writer = .init(file, io, &buffer);
     try zigrast.writeToTga(&w.interface, image);
-    // Stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
-    const stdout_writer = &stdout_file_writer.interface;
-
-    try zigrast.printAnotherMessage(stdout_writer);
-
-    try stdout_writer.flush(); // Don't forget to flush!
 }
 
 test "simple test" {

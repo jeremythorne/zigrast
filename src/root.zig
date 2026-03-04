@@ -82,12 +82,31 @@ pub const Color = struct {
     }
 };
 
-pub const Uniforms = struct { color: Color };
-
 pub const Varyings = struct {
-    a: Vec4,
-    b: Vec4,
-    c: Vec4,
+    v: [3][]Vec4 = undefined,
+
+    pub fn init(comptime len: usize, storage: []Vec4) Varyings {
+        const v = [3][]Vec4{ storage[0..len], storage[len..(2 * len)], storage[(2 * len)..(3 * len)] };
+        return Varyings{
+            .v = v,
+        };
+    }
+};
+
+pub const Varying = []Vec4;
+
+pub const VertexShader = fn (Attribute: anytype, uniforms: anytype, out: Varying) Vec4;
+pub const FragmentShader = fn (varying: []Vec4, uniforms: anytype) Vec4;
+
+pub const Pipeline = struct {
+    vertexShade: VertexShader,
+    fragmentShade: FragmentShader,
+    varyings_len: comptime_int,
+    attributes_type: type,
+};
+
+const Triangle = struct {
+    v: [3]Vec4 = undefined,
 };
 
 pub const Image = struct {
@@ -103,7 +122,31 @@ pub const Image = struct {
     pub fn deinit(self: Image, allocator: std.mem.Allocator) void {
         allocator.free(self.pixels);
     }
+
+    pub fn setPixel(self: Image, x: usize, y: usize, color: Color) void {
+        if (x >= self.width or y >= self.height) {
+            return;
+        }
+        const offset = (y * self.width + x) * 4;
+        self.pixels[offset] = color.r;
+        self.pixels[offset + 1] = color.g;
+        self.pixels[offset + 2] = color.b;
+        self.pixels[offset + 3] = color.a;
+    }
 };
+
+pub fn drawTriangles(pipeline: Pipeline, attributes: []const pipeline.attributes_type, uniforms: anytype, framebuffer: Image) void {
+    var triangle = Triangle{};
+    var varying_storage: [3 * pipeline.varyings_len]Vec4 = undefined;
+    const varyings: Varyings = .init(pipeline.varyings_len, &varying_storage);
+    var i: usize = 0;
+    while (i < attributes.len) : (i += 3) {
+        for (0..3) |j| {
+            triangle.v[j] = pipeline.vertexShade(attributes[i + j], uniforms, varyings.v[i % 3 + j]);
+        }
+        drawTriangle(framebuffer, triangle, pipeline, varyings, uniforms);
+    }
+}
 
 fn minv2i(a: Vec2i, b: Vec2i) Vec2i {
     return Vec2i{ .x = @min(a.x, b.x), .y = @min(a.y, b.y) };
@@ -148,14 +191,18 @@ fn pointInTriangle(pt: Vec2, v1: Vec2, v2: Vec2, v3: Vec2) bool {
     return !(has_neg and has_pos);
 }
 
-fn interp_varyings(varyings: Varyings, bary: Bary) Vec4 {
-    return varyings.a.mul(bary.l1).add(varyings.b.mul(bary.l2)).add(varyings.c.mul(bary.l3));
+fn interp_varyings(varyings: Varyings, bary: Bary, out: Varying) void {
+    for (varyings.v[0], varyings.v[1], varyings.v[2], 0..) |a, b, c, i| {
+        const v = a.mul(bary.l1).add(b.mul(bary.l2)).add(c.mul(bary.l3));
+        out[i] = v;
+    }
 }
 
-pub fn drawTriangle(canvas: Image, a: Vec4, b: Vec4, c: Vec4, varyings: Varyings) void {
-    const a2 = Vec2.init(a);
-    const b2 = Vec2.init(b);
-    const c2 = Vec2.init(c);
+pub fn drawTriangle(framebuffer: Image, triangle: Triangle, pipeline: Pipeline, varyings: Varyings, uniforms: anytype) void {
+    const varyings_len = pipeline.varyings_len;
+    const a2 = Vec2.init(triangle.v[0]);
+    const b2 = Vec2.init(triangle.v[1]);
+    const c2 = Vec2.init(triangle.v[2]);
     const ai = Vec2i.init(a2);
     const bi = Vec2i.init(b2);
     const ci = Vec2i.init(c2);
@@ -174,12 +221,11 @@ pub fn drawTriangle(canvas: Image, a: Vec4, b: Vec4, c: Vec4, varyings: Varyings
             const p = Vec2{ .x = @as(f32, @floatFromInt(x)) + 0.5, .y = @as(f32, @floatFromInt(y)) + 0.5 };
             if (pointInTriangle(p, a2, b2, c2)) {
                 const bary = bary_coords(p, a2, b2, c2, det);
-                const color = Color.fromVec4(interp_varyings(varyings, bary));
-                const offset = (y * canvas.width + x) * 4;
-                canvas.pixels[offset] = color.r;
-                canvas.pixels[offset + 1] = color.g;
-                canvas.pixels[offset + 2] = color.b;
-                canvas.pixels[offset + 3] = color.a;
+                var v: [varyings_len]Vec4 = undefined;
+                interp_varyings(varyings, bary, &v);
+                const color_v4 = pipeline.fragmentShade(&v, uniforms);
+                const color = Color.fromVec4(color_v4);
+                framebuffer.setPixel(x, y, color);
             }
         }
     }
@@ -193,13 +239,6 @@ pub fn writeToTga(writer: *Io.Writer, image: Image) Io.Writer.Error!void {
     header[15] = @intCast((image.height >> 8) & 0xff);
     _ = try writer.write(&header);
     _ = try writer.write(image.pixels);
-}
-
-/// This is a documentation comment to explain the `printAnotherMessage` function below.
-///
-/// Accepting an `Io.Writer` instance is a handy way to write reusable code.
-pub fn printAnotherMessage(writer: *Io.Writer) Io.Writer.Error!void {
-    try writer.print("Run `zig build test` to run the tests.\n", .{});
 }
 
 pub fn add(a: i32, b: i32) i32 {
