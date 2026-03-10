@@ -8,10 +8,13 @@ const Attribute = struct {
     color: zigrast.Vec4,
 };
 
+const Uniforms = struct {
+    proj: zigrast.Mat4,
+};
+
 fn vs(attribute: Attribute, uniforms: anytype, out: zigrast.Varying) zigrast.Vec4 {
-    _ = uniforms;
     out[0] = attribute.color;
-    return attribute.pos;
+    return uniforms.proj.mulv4(attribute.pos);
 }
 
 fn fs(varying: zigrast.Varying, uniforms: anytype) zigrast.Vec4 {
@@ -41,22 +44,45 @@ pub fn main(init: std.process.Init) !void {
         .varyings_len = 1,
         .attributes_type = Attribute,
     };
-    const attributes = [3]Attribute{
+
+    //
+    //   b 2,3---5 r
+    //    /       \
+    //   /         \
+    // r 0---------1,4 g
+
+    const attributes = [_]Attribute{
         Attribute{
-            .pos = zigrast.Vec4{ .x = 10, .y = 10, .z = 0, .w = 1 },
+            .pos = zigrast.Vec4{ .x = -1.4, .y = -1.4, .z = 0.2, .w = 1 },
             .color = zigrast.Vec4{ .x = 1.0, .y = 0.0, .z = 0.0, .w = 1 },
         },
         Attribute{
-            .pos = zigrast.Vec4{ .x = 300, .y = 120, .z = 0, .w = 1 },
+            .pos = zigrast.Vec4{ .x = 1.4, .y = -1.4, .z = 0.2, .w = 1 },
             .color = zigrast.Vec4{ .x = 0.0, .y = 1.0, .z = 0.0, .w = 1 },
         },
         Attribute{
-            .pos = zigrast.Vec4{ .x = 60, .y = 230, .z = 0, .w = 1 },
+            .pos = zigrast.Vec4{ .x = -1.4, .y = -1.4, .z = 0.3, .w = 1 },
             .color = zigrast.Vec4{ .x = 0.0, .y = 0.0, .z = 1.0, .w = 1 },
+        },
+        Attribute{
+            .pos = zigrast.Vec4{ .x = -1.4, .y = -1.4, .z = 0.3, .w = 1 },
+            .color = zigrast.Vec4{ .x = 0.0, .y = 0.0, .z = 1.0, .w = 1 },
+        },
+        Attribute{
+            .pos = zigrast.Vec4{ .x = 1.4, .y = -1.4, .z = 0.2, .w = 1 },
+            .color = zigrast.Vec4{ .x = 0.0, .y = 1.0, .z = 0.0, .w = 1 },
+        },
+        Attribute{
+            .pos = zigrast.Vec4{ .x = 1.4, .y = -1.4, .z = 0.3, .w = 1 },
+            .color = zigrast.Vec4{ .x = 1.0, .y = 0.0, .z = 0.0, .w = 1 },
         },
     };
 
-    zigrast.drawTriangles(pipeline, &attributes, {}, image);
+    const uniforms = Uniforms{
+        .proj = .init_projection(1.5, 1.0, 0.1, 2.0),
+    };
+
+    zigrast.drawTriangles(pipeline, &attributes, uniforms, image);
 
     const file = try Io.Dir.createFile(
         Io.Dir.cwd(),

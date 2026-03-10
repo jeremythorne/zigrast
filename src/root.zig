@@ -41,6 +41,52 @@ pub const Vec4 = struct {
             .w = a.w * b,
         };
     }
+
+    pub fn debug_print(a: Vec4) void {
+        std.debug.print("{} {} {} {}\n", .{ a.x, a.y, a.z, a.w });
+    }
+};
+
+pub const Mat4 = struct {
+    a: [16]f32 = undefined,
+
+    pub fn mulv4(self: Mat4, v: Vec4) Vec4 {
+        return Vec4{
+            .x = self.a[0] * v.x + self.a[1] * v.y + self.a[2] * v.z + self.a[3] * v.w,
+            .y = self.a[4] * v.x + self.a[5] * v.y + self.a[6] * v.z + self.a[7] * v.w,
+            .z = self.a[8] * v.x + self.a[9] * v.y + self.a[10] * v.z + self.a[11] * v.w,
+            .w = self.a[12] * v.x + self.a[13] * v.y + self.a[14] * v.z + self.a[15] * v.w,
+        };
+    }
+
+    pub fn init() Mat4 {
+        return Mat4{
+            .a = [16]f32{
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, 0, 1,
+            },
+        };
+    }
+
+    pub fn init_projection(r: f32, t: f32, n: f32, f: f32) Mat4 {
+        return Mat4{
+            .a = [_]f32{
+                n / r, 0,     0,                  0,
+                0,     n / t, 0,                  0,
+                0,     0,     -(f + n) / (f - n), -2 * f * n / (f - n),
+                0,     0,     -1,                 0,
+            },
+        };
+    }
+
+    pub fn debug_print(a: Mat4) void {
+        std.debug.print("{} {} {} {}\n", .{ a.a[0], a.a[1], a.a[2], a.a[3] });
+        std.debug.print("{} {} {} {}\n", .{ a.a[4], a.a[5], a.a[6], a.a[7] });
+        std.debug.print("{} {} {} {}\n", .{ a.a[8], a.a[9], a.a[10], a.a[11] });
+        std.debug.print("{} {} {} {}\n", .{ a.a[12], a.a[13], a.a[14], a.a[15] });
+    }
 };
 
 const Vec2 = struct {
@@ -74,16 +120,24 @@ pub const Color = struct {
     a: u8,
     pub fn fromVec4(v: Vec4) Color {
         return Color{
-            .r = @intFromFloat(v.x * 255),
-            .g = @intFromFloat(v.y * 255),
-            .b = @intFromFloat(v.z * 255),
-            .a = @intFromFloat(v.w * 255),
+            .r = @intFromFloat(@min(@max(0, v.x * 255), 255)),
+            .g = @intFromFloat(@min(@max(0, v.y * 255), 255)),
+            .b = @intFromFloat(@min(@max(0, v.z * 255), 255)),
+            .a = @intFromFloat(@min(@max(0, v.w * 255), 255)),
         };
     }
 };
 
 pub const Varyings = struct {
     v: [3][]Vec4 = undefined,
+
+    pub fn mul(self: Varyings, f: [3]f32) void {
+        for (0..3) |i| {
+            for (0..self.v[i].len) |j| {
+                self.v[i][j] = self.v[i][j].mul(f[i]);
+            }
+        }
+    }
 
     pub fn init(comptime len: usize, storage: []Vec4) Varyings {
         const v = [3][]Vec4{ storage[0..len], storage[len..(2 * len)], storage[(2 * len)..(3 * len)] };
@@ -128,9 +182,9 @@ pub const Image = struct {
             return;
         }
         const offset = (y * self.width + x) * 4;
-        self.pixels[offset] = color.r;
+        self.pixels[offset] = color.b;
         self.pixels[offset + 1] = color.g;
-        self.pixels[offset + 2] = color.b;
+        self.pixels[offset + 2] = color.r;
         self.pixels[offset + 3] = color.a;
     }
 };
@@ -142,7 +196,7 @@ pub fn drawTriangles(pipeline: Pipeline, attributes: []const pipeline.attributes
     var i: usize = 0;
     while (i < attributes.len) : (i += 3) {
         for (0..3) |j| {
-            triangle.v[j] = pipeline.vertexShade(attributes[i + j], uniforms, varyings.v[i % 3 + j]);
+            triangle.v[j] = pipeline.vertexShade(attributes[i + j], uniforms, varyings.v[j]);
         }
         drawTriangle(framebuffer, triangle, pipeline, varyings, uniforms);
     }
@@ -191,6 +245,10 @@ fn pointInTriangle(pt: Vec2, v1: Vec2, v2: Vec2, v3: Vec2) bool {
     return !(has_neg and has_pos);
 }
 
+fn interp_f32(a: f32, b: f32, c: f32, bary: Bary) f32 {
+    return a * bary.l1 + b * bary.l2 + c * bary.l3;
+}
+
 fn interp_varyings(varyings: Varyings, bary: Bary, out: Varying) void {
     for (varyings.v[0], varyings.v[1], varyings.v[2], 0..) |a, b, c, i| {
         const v = a.mul(bary.l1).add(b.mul(bary.l2)).add(c.mul(bary.l3));
@@ -200,29 +258,46 @@ fn interp_varyings(varyings: Varyings, bary: Bary, out: Varying) void {
 
 pub fn drawTriangle(framebuffer: Image, triangle: Triangle, pipeline: Pipeline, varyings: Varyings, uniforms: anytype) void {
     const varyings_len = pipeline.varyings_len;
-    const a2 = Vec2.init(triangle.v[0]);
-    const b2 = Vec2.init(triangle.v[1]);
-    const c2 = Vec2.init(triangle.v[2]);
-    const ai = Vec2i.init(a2);
-    const bi = Vec2i.init(b2);
-    const ci = Vec2i.init(c2);
-    const mini = minv2i(minv2i(ai, bi), ci);
-    const maxi = maxv2i(maxv2i(ai, bi), ci);
+    var a2: [3]Vec2 = undefined;
+    var ai: [3]Vec2i = undefined;
+    var ow: [3]f32 = undefined;
+    for (0..3) |i| {
+        // divide by w to convert to NDC
+        ow[i] = 1.0 / triangle.v[i].w;
+        const a = triangle.v[i].mul(ow[i]);
+        a2[i] = Vec2.init(a);
+        // offset and mult by screen size
+        a2[i].x = (-a2[i].x + 1.0) * 0.5 * @as(f32, @floatFromInt(framebuffer.width));
+        a2[i].y = (-a2[i].y + 1.0) * 0.5 * @as(f32, @floatFromInt(framebuffer.height));
+        ai[i] = Vec2i.init(a2[i]);
+    }
+    // divide varyings by w
+    varyings.mul(ow);
+
+    // find bounding box in screen space
+    const mini = minv2i(minv2i(ai[0], ai[1]), ai[2]);
+    const maxi = maxv2i(maxv2i(ai[0], ai[1]), ai[2]);
 
     const miny: usize = @max(0, mini.y);
     const maxy: usize = @max(0, maxi.y + 1);
     const minx: usize = @max(0, mini.x);
     const maxx: usize = @max(0, maxi.x + 1);
 
-    const det = bary_det(a2, b2, c2);
+    const det = bary_det(a2[0], a2[1], a2[2]);
 
+    // for each pixel in bounding box
     for (miny..maxy) |y| {
         for (minx..maxx) |x| {
             const p = Vec2{ .x = @as(f32, @floatFromInt(x)) + 0.5, .y = @as(f32, @floatFromInt(y)) + 0.5 };
-            if (pointInTriangle(p, a2, b2, c2)) {
-                const bary = bary_coords(p, a2, b2, c2, det);
+            if (pointInTriangle(p, a2[0], a2[1], a2[2])) {
+                const bary = bary_coords(p, a2[0], a2[1], a2[2], det);
+                const w_int = 1.0 / interp_f32(ow[0], ow[1], ow[2], bary);
                 var v: [varyings_len]Vec4 = undefined;
                 interp_varyings(varyings, bary, &v);
+                // divide by (1/w) to get perpective correct interpolation
+                for (0..varyings_len) |i| {
+                    v[i] = v[i].mul(w_int);
+                }
                 const color_v4 = pipeline.fragmentShade(&v, uniforms);
                 const color = Color.fromVec4(color_v4);
                 framebuffer.setPixel(x, y, color);
@@ -241,10 +316,55 @@ pub fn writeToTga(writer: *Io.Writer, image: Image) Io.Writer.Error!void {
     _ = try writer.write(image.pixels);
 }
 
-pub fn add(a: i32, b: i32) i32 {
-    return a + b;
+test "interp float" {
+    const a = Vec2{ .x = 0.1, .y = 0.1 };
+    const b = Vec2{ .x = 1.1, .y = 0.1 };
+    const c = Vec2{ .x = 0.1, .y = 1.1 };
+    const det = bary_det(a, b, c);
+
+    const bary_at_a = bary_coords(a, a, b, c, det);
+    const i_at_a = interp_f32(5, 6, 20, bary_at_a);
+    try std.testing.expect(i_at_a == 5);
+
+    const bary_at_b = bary_coords(b, a, b, c, det);
+    const i_at_b = interp_f32(5, 6, 20, bary_at_b);
+    try std.testing.expect(i_at_b == 6);
+
+    const bary_at_c = bary_coords(c, a, b, c, det);
+    const i_at_c = interp_f32(5, 6, 20, bary_at_c);
+    try std.testing.expect(i_at_c == 20);
+
+    const mid_bc = Vec2{ .x = (b.x + c.x) / 2, .y = (b.y + c.y) / 2 };
+    const bary_at_mid_bc = bary_coords(mid_bc, a, b, c, det);
+    const i_at_mid_bc = interp_f32(5, 6, 20, bary_at_mid_bc);
+    try std.testing.expect(i_at_mid_bc == (6 + 20) / 2);
 }
 
-test "basic add functionality" {
-    try std.testing.expect(add(3, 7) == 10);
+test "point in triangle" {
+    //
+    //
+    //
+    //  | \
+    //  |  \
+    // 4|   \ 2
+    //  |  1 \
+    //  |     \
+    //  -------
+    //     3
+
+    const a = Vec2{ .x = 0.1, .y = 0.1 };
+    const b = Vec2{ .x = 1.1, .y = 0.1 };
+    const c = Vec2{ .x = 0.1, .y = 1.1 };
+
+    const p1 = Vec2{ .x = 0.5, .y = 0.5 };
+    try std.testing.expect(pointInTriangle(p1, a, b, c) == true);
+
+    const p2 = Vec2{ .x = 0.7, .y = 0.7 };
+    try std.testing.expect(pointInTriangle(p2, a, b, c) == false);
+
+    const p3 = Vec2{ .x = 0.5, .y = 0.0 };
+    try std.testing.expect(pointInTriangle(p3, a, b, c) == false);
+
+    const p4 = Vec2{ .x = 0.0, .y = 0.5 };
+    try std.testing.expect(pointInTriangle(p4, a, b, c) == false);
 }
