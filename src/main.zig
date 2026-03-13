@@ -9,12 +9,13 @@ const Attribute = struct {
 };
 
 const Uniforms = struct {
+    offset: zigrast.Vec4,
     proj: zigrast.Mat4,
 };
 
 fn vs(attribute: Attribute, uniforms: anytype, out: zigrast.Varying) zigrast.Vec4 {
     out[0] = attribute.color;
-    return uniforms.proj.mulv4(attribute.pos);
+    return uniforms.proj.mulv4(attribute.pos.add(uniforms.offset));
 }
 
 fn fs(varying: zigrast.Varying, uniforms: anytype) zigrast.Vec4 {
@@ -37,6 +38,11 @@ pub fn main(init: std.process.Init) !void {
 
     const image = try zigrast.Image.init(arena, 320, 240);
     defer image.deinit(arena);
+    const depth = try zigrast.DepthBuffer.init(arena, 320, 240);
+    const frameBuffer = zigrast.FrameBuffer{
+        .image = image,
+        .depthBuffer = depth,
+    };
 
     const pipeline = zigrast.Pipeline{
         .vertexShade = vs,
@@ -45,44 +51,85 @@ pub fn main(init: std.process.Init) !void {
         .attributes_type = Attribute,
     };
 
+    // a cube
     //
-    //   b 2,3---5 r
-    //    /       \
-    //   /         \
-    // r 0---------1,4 g
+    //  g-----------h
+    //  |  e --- f  |
+    //  |  a --- b  |
+    //  | /       \ |
+    //  |/         \|
+    //  c---------- d
+    const a = zigrast.Vec4{ .x = -0.5, .y = -0.5, .z = -0.5, .w = 1.0 };
+    const b = zigrast.Vec4{ .x = 0.5, .y = -0.5, .z = -0.5, .w = 1.0 };
+    const c = zigrast.Vec4{ .x = -0.5, .y = -0.5, .z = 0.5, .w = 1.0 };
+    const d = zigrast.Vec4{ .x = 0.5, .y = -0.5, .z = 0.5, .w = 1.0 };
+    const e = zigrast.Vec4{ .x = -0.5, .y = 0.5, .z = -0.5, .w = 1.0 };
+    const f = zigrast.Vec4{ .x = 0.5, .y = 0.5, .z = -0.5, .w = 1.0 };
+    const g = zigrast.Vec4{ .x = -0.5, .y = 0.5, .z = 0.5, .w = 1.0 };
+    const h = zigrast.Vec4{ .x = 0.5, .y = 0.5, .z = 0.5, .w = 1.0 };
+
+    const red = zigrast.Vec4{ .x = 1.0, .y = 0.0, .z = 0.0, .w = 1.0 };
+    const green = zigrast.Vec4{ .x = 0.0, .y = 1.0, .z = 0.0, .w = 1.0 };
+    const blue = zigrast.Vec4{ .x = 0.0, .y = 0.0, .z = 1.0, .w = 1.0 };
 
     const attributes = [_]Attribute{
-        Attribute{
-            .pos = zigrast.Vec4{ .x = -1.4, .y = -1.4, .z = 0.2, .w = 1 },
-            .color = zigrast.Vec4{ .x = 1.0, .y = 0.0, .z = 0.0, .w = 1 },
-        },
-        Attribute{
-            .pos = zigrast.Vec4{ .x = 1.4, .y = -1.4, .z = 0.2, .w = 1 },
-            .color = zigrast.Vec4{ .x = 0.0, .y = 1.0, .z = 0.0, .w = 1 },
-        },
-        Attribute{
-            .pos = zigrast.Vec4{ .x = -1.4, .y = -1.4, .z = 0.3, .w = 1 },
-            .color = zigrast.Vec4{ .x = 0.0, .y = 0.0, .z = 1.0, .w = 1 },
-        },
-        Attribute{
-            .pos = zigrast.Vec4{ .x = -1.4, .y = -1.4, .z = 0.3, .w = 1 },
-            .color = zigrast.Vec4{ .x = 0.0, .y = 0.0, .z = 1.0, .w = 1 },
-        },
-        Attribute{
-            .pos = zigrast.Vec4{ .x = 1.4, .y = -1.4, .z = 0.2, .w = 1 },
-            .color = zigrast.Vec4{ .x = 0.0, .y = 1.0, .z = 0.0, .w = 1 },
-        },
-        Attribute{
-            .pos = zigrast.Vec4{ .x = 1.4, .y = -1.4, .z = 0.3, .w = 1 },
-            .color = zigrast.Vec4{ .x = 1.0, .y = 0.0, .z = 0.0, .w = 1 },
-        },
+        // bottom
+        Attribute{ .pos = a, .color = green },
+        Attribute{ .pos = b, .color = green },
+        Attribute{ .pos = c, .color = red },
+        Attribute{ .pos = c, .color = red },
+        Attribute{ .pos = b, .color = green },
+        Attribute{ .pos = d, .color = red },
+        // left
+        Attribute{ .pos = a, .color = green },
+        Attribute{ .pos = c, .color = green },
+        Attribute{ .pos = e, .color = green },
+        Attribute{ .pos = e, .color = green },
+        Attribute{ .pos = c, .color = green },
+        Attribute{ .pos = g, .color = green },
+        // front
+        Attribute{ .pos = c, .color = blue },
+        Attribute{ .pos = d, .color = blue },
+        Attribute{ .pos = g, .color = blue },
+        Attribute{ .pos = g, .color = blue },
+        Attribute{ .pos = d, .color = blue },
+        Attribute{ .pos = h, .color = blue },
+        // right
+        Attribute{ .pos = d, .color = red },
+        Attribute{ .pos = b, .color = green },
+        Attribute{ .pos = h, .color = red },
+        Attribute{ .pos = h, .color = red },
+        Attribute{ .pos = b, .color = green },
+        Attribute{ .pos = f, .color = green },
+        // back
+        Attribute{ .pos = b, .color = green },
+        Attribute{ .pos = a, .color = green },
+        Attribute{ .pos = f, .color = green },
+        Attribute{ .pos = f, .color = green },
+        Attribute{ .pos = a, .color = green },
+        Attribute{ .pos = e, .color = green },
+        // top
+        Attribute{ .pos = g, .color = blue },
+        Attribute{ .pos = h, .color = blue },
+        Attribute{ .pos = e, .color = green },
+        Attribute{ .pos = e, .color = green },
+        Attribute{ .pos = h, .color = blue },
+        Attribute{ .pos = f, .color = green },
     };
 
-    const uniforms = Uniforms{
-        .proj = .init_projection(1.5, 1.0, 0.1, 2.0),
+    var uniforms = Uniforms{
+        .offset = zigrast.Vec4{ .x = -1.0, .y = -1.0, .z = -2.0, .w = 0.0 },
+        .proj = .init_projection(1.0, 240.0 / 320.0, 0.5, 50.0),
     };
 
-    zigrast.drawTriangles(pipeline, &attributes, uniforms, image);
+    // draw 4 cubes
+    zigrast.drawTriangles(pipeline, &attributes, uniforms, frameBuffer);
+    uniforms.offset.x = 1.0;
+    zigrast.drawTriangles(pipeline, &attributes, uniforms, frameBuffer);
+    uniforms.offset.y = 1.0;
+    zigrast.drawTriangles(pipeline, &attributes, uniforms, frameBuffer);
+    uniforms.offset.x = -1.0;
+    zigrast.drawTriangles(pipeline, &attributes, uniforms, frameBuffer);
 
     const file = try Io.Dir.createFile(
         Io.Dir.cwd(),

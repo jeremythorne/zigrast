@@ -189,7 +189,64 @@ pub const Image = struct {
     }
 };
 
-pub fn drawTriangles(pipeline: Pipeline, attributes: []const pipeline.attributes_type, uniforms: anytype, framebuffer: Image) void {
+pub const DepthBuffer = struct {
+    pixels: []f32,
+    width: u32,
+    height: u32,
+
+    pub fn init(allocator: std.mem.Allocator, w: u32, h: u32) !DepthBuffer {
+        const pixels = try allocator.alloc(f32, w * h);
+        @memset(pixels, std.math.floatMax(f32));
+        return DepthBuffer{ .pixels = pixels, .width = w, .height = h };
+    }
+
+    pub fn deinit(self: Image, allocator: std.mem.Allocator) void {
+        allocator.free(self.pixels);
+    }
+
+    pub fn setDepth(self: DepthBuffer, x: usize, y: usize, depth: f32) void {
+        if (x >= self.width or y >= self.height) {
+            return;
+        }
+        const offset = (y * self.width + x);
+        self.pixels[offset] = depth;
+    }
+
+    pub fn getDepth(self: DepthBuffer, x: usize, y: usize) f32 {
+        if (x >= self.width or y >= self.height) {
+            return 0;
+        }
+        const offset = (y * self.width + x);
+        return self.pixels[offset];
+    }
+};
+
+pub const FrameBuffer = struct {
+    image: Image,
+    depthBuffer: DepthBuffer,
+
+    pub fn width(self: FrameBuffer) usize {
+        return self.image.width;
+    }
+
+    pub fn height(self: FrameBuffer) usize {
+        return self.image.height;
+    }
+
+    pub fn setPixel(self: FrameBuffer, x: usize, y: usize, color: Color) void {
+        self.image.setPixel(x, y, color);
+    }
+
+    pub fn setDepth(self: FrameBuffer, x: usize, y: usize, depth: f32) void {
+        self.depthBuffer.setDepth(x, y, depth);
+    }
+
+    pub fn getDepth(self: FrameBuffer, x: usize, y: usize) f32 {
+        return self.depthBuffer.getDepth(x, y);
+    }
+};
+
+pub fn drawTriangles(pipeline: Pipeline, attributes: []const pipeline.attributes_type, uniforms: anytype, framebuffer: FrameBuffer) void {
     var triangle = Triangle{};
     var varying_storage: [3 * pipeline.varyings_len]Vec4 = undefined;
     const varyings: Varyings = .init(pipeline.varyings_len, &varying_storage);
@@ -256,19 +313,20 @@ fn interp_varyings(varyings: Varyings, bary: Bary, out: Varying) void {
     }
 }
 
-pub fn drawTriangle(framebuffer: Image, triangle: Triangle, pipeline: Pipeline, varyings: Varyings, uniforms: anytype) void {
+pub fn drawTriangle(framebuffer: FrameBuffer, triangle: Triangle, pipeline: Pipeline, varyings: Varyings, uniforms: anytype) void {
     const varyings_len = pipeline.varyings_len;
+    var a: [3]Vec4 = undefined;
     var a2: [3]Vec2 = undefined;
     var ai: [3]Vec2i = undefined;
     var ow: [3]f32 = undefined;
     for (0..3) |i| {
         // divide by w to convert to NDC
         ow[i] = 1.0 / triangle.v[i].w;
-        const a = triangle.v[i].mul(ow[i]);
-        a2[i] = Vec2.init(a);
+        a[i] = triangle.v[i].mul(ow[i]);
+        a2[i] = Vec2.init(a[i]);
         // offset and mult by screen size
-        a2[i].x = (-a2[i].x + 1.0) * 0.5 * @as(f32, @floatFromInt(framebuffer.width));
-        a2[i].y = (-a2[i].y + 1.0) * 0.5 * @as(f32, @floatFromInt(framebuffer.height));
+        a2[i].x = (a2[i].x + 1.0) * 0.5 * @as(f32, @floatFromInt(framebuffer.width()));
+        a2[i].y = (a2[i].y + 1.0) * 0.5 * @as(f32, @floatFromInt(framebuffer.height()));
         ai[i] = Vec2i.init(a2[i]);
     }
     // divide varyings by w
@@ -292,6 +350,11 @@ pub fn drawTriangle(framebuffer: Image, triangle: Triangle, pipeline: Pipeline, 
             if (pointInTriangle(p, a2[0], a2[1], a2[2])) {
                 const bary = bary_coords(p, a2[0], a2[1], a2[2], det);
                 const w_int = 1.0 / interp_f32(ow[0], ow[1], ow[2], bary);
+                const depth = w_int * interp_f32(a[0].z, a[1].z, a[2].z, bary);
+                if (depth > framebuffer.getDepth(x, y)) {
+                    continue;
+                }
+                framebuffer.setDepth(x, y, depth);
                 var v: [varyings_len]Vec4 = undefined;
                 interp_varyings(varyings, bary, &v);
                 // divide by (1/w) to get perpective correct interpolation

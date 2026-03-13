@@ -6,10 +6,11 @@
 * projection matrices
 * perspective correct varying interpolation
 * tga image output
+* depth buffers and testing
 
 ## TODO
 * texturing (bilinear sampling)
 * mipmap selection
-* depth buffers and testing
 
+![cubes](cubes.png)
 ![a quad](quad.png)
