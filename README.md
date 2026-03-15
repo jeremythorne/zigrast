@@ -5,12 +5,14 @@
 * attributes, uniforms, varyings
 * projection matrices
 * perspective correct varying interpolation
-* tga image output
 * depth buffers and testing
+* nearest neighbour texture sampling
+* tga image output
 
 ## TODO
-* texturing (bilinear sampling)
+* more texturing (bilinear sampling)
 * mipmap selection
 
+![textured cubes](cubes_bw.png)
 ![cubes](cubes.png)
 ![a quad](quad.png)

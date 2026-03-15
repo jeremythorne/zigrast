@@ -5,22 +5,24 @@ const zigrast = @import("zigrast");
 
 const Attribute = struct {
     pos: zigrast.Vec4,
-    color: zigrast.Vec4,
+    uv: zigrast.Vec2,
 };
 
 const Uniforms = struct {
     offset: zigrast.Vec4,
     proj: zigrast.Mat4,
+    tex: zigrast.Image,
 };
 
 fn vs(attribute: Attribute, uniforms: anytype, out: zigrast.Varying) zigrast.Vec4 {
-    out[0] = attribute.color;
+    out[0] = zigrast.Vec4{ .x = 1.0, .y = 1.0, .z = 1.0, .w = 1.0 };
+    out[1] = zigrast.Vec4{ .x = attribute.uv.x, .y = attribute.uv.y, .z = 0, .w = 0 };
     return uniforms.proj.mulv4(attribute.pos.add(uniforms.offset));
 }
 
 fn fs(varying: zigrast.Varying, uniforms: anytype) zigrast.Vec4 {
-    _ = uniforms;
-    return varying[0];
+    const s = uniforms.tex.sampleNearest(varying[1].x, varying[1].y);
+    return varying[0].mulV4(s);
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -47,7 +49,7 @@ pub fn main(init: std.process.Init) !void {
     const pipeline = zigrast.Pipeline{
         .vertexShade = vs,
         .fragmentShade = fs,
-        .varyings_len = 1,
+        .varyings_len = 2,
         .attributes_type = Attribute,
     };
 
@@ -68,58 +70,70 @@ pub fn main(init: std.process.Init) !void {
     const g = zigrast.Vec4{ .x = -0.5, .y = 0.5, .z = 0.5, .w = 1.0 };
     const h = zigrast.Vec4{ .x = 0.5, .y = 0.5, .z = 0.5, .w = 1.0 };
 
-    const red = zigrast.Vec4{ .x = 1.0, .y = 0.0, .z = 0.0, .w = 1.0 };
-    const green = zigrast.Vec4{ .x = 0.0, .y = 1.0, .z = 0.0, .w = 1.0 };
-    const blue = zigrast.Vec4{ .x = 0.0, .y = 0.0, .z = 1.0, .w = 1.0 };
+    const one_one = zigrast.Vec2{ .x = 1.0, .y = 1.0 };
+    const one_zero = zigrast.Vec2{ .x = 1.0, .y = 0.0 };
+    const zero_one = zigrast.Vec2{ .x = 0.0, .y = 1.0 };
+    const zero_zero = zigrast.Vec2{ .x = 0.0, .y = 0.0 };
 
     const attributes = [_]Attribute{
         // bottom
-        Attribute{ .pos = a, .color = green },
-        Attribute{ .pos = b, .color = green },
-        Attribute{ .pos = c, .color = red },
-        Attribute{ .pos = c, .color = red },
-        Attribute{ .pos = b, .color = green },
-        Attribute{ .pos = d, .color = red },
+        Attribute{ .pos = a, .uv = zero_one },
+        Attribute{ .pos = b, .uv = one_one },
+        Attribute{ .pos = c, .uv = zero_zero },
+        Attribute{ .pos = c, .uv = zero_zero },
+        Attribute{ .pos = b, .uv = one_one },
+        Attribute{ .pos = d, .uv = one_zero },
         // left
-        Attribute{ .pos = a, .color = green },
-        Attribute{ .pos = c, .color = green },
-        Attribute{ .pos = e, .color = green },
-        Attribute{ .pos = e, .color = green },
-        Attribute{ .pos = c, .color = green },
-        Attribute{ .pos = g, .color = green },
+        Attribute{ .pos = a, .uv = zero_one },
+        Attribute{ .pos = c, .uv = one_one },
+        Attribute{ .pos = e, .uv = zero_zero },
+        Attribute{ .pos = e, .uv = zero_zero },
+        Attribute{ .pos = c, .uv = one_one },
+        Attribute{ .pos = g, .uv = one_zero },
         // front
-        Attribute{ .pos = c, .color = blue },
-        Attribute{ .pos = d, .color = blue },
-        Attribute{ .pos = g, .color = blue },
-        Attribute{ .pos = g, .color = blue },
-        Attribute{ .pos = d, .color = blue },
-        Attribute{ .pos = h, .color = blue },
+        Attribute{ .pos = c, .uv = zero_one },
+        Attribute{ .pos = d, .uv = one_one },
+        Attribute{ .pos = g, .uv = zero_zero },
+        Attribute{ .pos = g, .uv = zero_zero },
+        Attribute{ .pos = d, .uv = one_one },
+        Attribute{ .pos = h, .uv = one_zero },
         // right
-        Attribute{ .pos = d, .color = red },
-        Attribute{ .pos = b, .color = green },
-        Attribute{ .pos = h, .color = red },
-        Attribute{ .pos = h, .color = red },
-        Attribute{ .pos = b, .color = green },
-        Attribute{ .pos = f, .color = green },
+        Attribute{ .pos = d, .uv = zero_one },
+        Attribute{ .pos = b, .uv = one_one },
+        Attribute{ .pos = h, .uv = zero_zero },
+        Attribute{ .pos = h, .uv = zero_zero },
+        Attribute{ .pos = b, .uv = one_one },
+        Attribute{ .pos = f, .uv = one_zero },
         // back
-        Attribute{ .pos = b, .color = green },
-        Attribute{ .pos = a, .color = green },
-        Attribute{ .pos = f, .color = green },
-        Attribute{ .pos = f, .color = green },
-        Attribute{ .pos = a, .color = green },
-        Attribute{ .pos = e, .color = green },
+        Attribute{ .pos = b, .uv = zero_one },
+        Attribute{ .pos = a, .uv = one_one },
+        Attribute{ .pos = f, .uv = zero_zero },
+        Attribute{ .pos = f, .uv = zero_zero },
+        Attribute{ .pos = a, .uv = one_one },
+        Attribute{ .pos = e, .uv = one_zero },
         // top
-        Attribute{ .pos = g, .color = blue },
-        Attribute{ .pos = h, .color = blue },
-        Attribute{ .pos = e, .color = green },
-        Attribute{ .pos = e, .color = green },
-        Attribute{ .pos = h, .color = blue },
-        Attribute{ .pos = f, .color = green },
+        Attribute{ .pos = g, .uv = zero_one },
+        Attribute{ .pos = h, .uv = one_one },
+        Attribute{ .pos = e, .uv = zero_zero },
+        Attribute{ .pos = e, .uv = zero_zero },
+        Attribute{ .pos = h, .uv = one_one },
+        Attribute{ .pos = f, .uv = one_zero },
     };
+
+    const texture = try zigrast.Image.init(arena, 2, 2);
+    defer texture.deinit(arena);
+
+    const black = zigrast.Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const white = zigrast.Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    texture.setPixel(0, 0, black);
+    texture.setPixel(1, 0, white);
+    texture.setPixel(0, 1, white);
+    texture.setPixel(1, 1, black);
 
     var uniforms = Uniforms{
         .offset = zigrast.Vec4{ .x = -1.0, .y = -1.0, .z = -2.0, .w = 0.0 },
         .proj = .init_projection(1.0, 240.0 / 320.0, 0.5, 50.0),
+        .tex = texture,
     };
 
     // draw 4 cubes

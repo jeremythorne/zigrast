@@ -42,6 +42,15 @@ pub const Vec4 = struct {
         };
     }
 
+    pub fn mulV4(a: Vec4, b: Vec4) Vec4 {
+        return Vec4{
+            .x = a.x * b.x,
+            .y = a.y * b.y,
+            .z = a.z * b.z,
+            .w = a.w * b.w,
+        };
+    }
+
     pub fn debug_print(a: Vec4) void {
         std.debug.print("{} {} {} {}\n", .{ a.x, a.y, a.z, a.w });
     }
@@ -89,7 +98,7 @@ pub const Mat4 = struct {
     }
 };
 
-const Vec2 = struct {
+pub const Vec2 = struct {
     x: f32,
     y: f32,
 
@@ -124,6 +133,15 @@ pub const Color = struct {
             .g = @intFromFloat(@min(@max(0, v.y * 255), 255)),
             .b = @intFromFloat(@min(@max(0, v.z * 255), 255)),
             .a = @intFromFloat(@min(@max(0, v.w * 255), 255)),
+        };
+    }
+
+    pub fn toVec4(self: Color) Vec4 {
+        return Vec4{
+            .x = @as(f32, @floatFromInt(self.r)) / 255.0,
+            .y = @as(f32, @floatFromInt(self.g)) / 255.0,
+            .z = @as(f32, @floatFromInt(self.b)) / 255.0,
+            .w = @as(f32, @floatFromInt(self.a)) / 255.0,
         };
     }
 };
@@ -186,6 +204,25 @@ pub const Image = struct {
         self.pixels[offset + 1] = color.g;
         self.pixels[offset + 2] = color.r;
         self.pixels[offset + 3] = color.a;
+    }
+
+    pub fn getPixel(self: Image, x: usize, y: usize) Color {
+        if (x >= self.width or y >= self.height) {
+            return Color{ .r = 0, .g = 0, .b = 0, .a = 0 };
+        }
+        const offset = (y * self.width + x) * 4;
+        return Color{
+            .r = self.pixels[offset],
+            .g = self.pixels[offset + 1],
+            .b = self.pixels[offset + 2],
+            .a = self.pixels[offset + 3],
+        };
+    }
+
+    pub fn sampleNearest(self: Image, u: f32, v: f32) Vec4 {
+        const x: usize = @as(usize, @intFromFloat(@mod(u, 1.0) * @as(f32, @floatFromInt(self.width))));
+        const y: usize = @as(usize, @intFromFloat(@mod(v, 1.0) * @as(f32, @floatFromInt(self.height))));
+        return Color.toVec4(self.getPixel(x, y));
     }
 };
 
