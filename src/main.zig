@@ -120,6 +120,21 @@ pub fn main(init: std.process.Init) !void {
         Attribute{ .pos = f, .uv = one_zero },
     };
 
+    var plane_attributes = [_]Attribute{
+        attributes[0],
+        attributes[1],
+        attributes[2],
+        attributes[3],
+        attributes[4],
+        attributes[5],
+        attributes[6],
+    };
+    const plane_scale = 100;
+    for (&plane_attributes) |*p| {
+        p.pos = p.pos.mulV4(zigrast.Vec4{ .x = 3 * plane_scale, .y = 1, .z = plane_scale, .w = 1 });
+        p.uv = zigrast.Vec2{ .x = p.uv.x * plane_scale, .y = p.uv.y * plane_scale };
+    }
+
     const texture = try zigrast.Image.init(arena, 2, 2);
     defer texture.deinit(arena);
 
@@ -144,6 +159,12 @@ pub fn main(init: std.process.Init) !void {
     zigrast.drawTriangles(pipeline, &attributes, uniforms, frameBuffer);
     uniforms.offset.x = -1.0;
     zigrast.drawTriangles(pipeline, &attributes, uniforms, frameBuffer);
+
+    // draw ground plane
+    uniforms.offset.x = 0.0;
+    uniforms.offset.y = -5;
+    uniforms.offset.z = -51;
+    zigrast.drawTriangles(pipeline, &plane_attributes, uniforms, frameBuffer);
 
     const file = try Io.Dir.createFile(
         Io.Dir.cwd(),

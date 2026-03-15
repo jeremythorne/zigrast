@@ -13,6 +13,7 @@
 * more texturing (bilinear sampling)
 * mipmap selection
 
+![cubes and ground plane (demonstrating texture aliasing)](cubes_and_plane_aliased.png)
 ![textured cubes](cubes_bw.png)
 ![cubes](cubes.png)
 ![a quad](quad.png)

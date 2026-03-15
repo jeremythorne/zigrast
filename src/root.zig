@@ -288,7 +288,7 @@ pub fn drawTriangles(pipeline: Pipeline, attributes: []const pipeline.attributes
     var varying_storage: [3 * pipeline.varyings_len]Vec4 = undefined;
     const varyings: Varyings = .init(pipeline.varyings_len, &varying_storage);
     var i: usize = 0;
-    while (i < attributes.len) : (i += 3) {
+    while (i + 2 < attributes.len) : (i += 3) {
         for (0..3) |j| {
             triangle.v[j] = pipeline.vertexShade(attributes[i + j], uniforms, varyings.v[j]);
         }
