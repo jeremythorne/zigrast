@@ -2,6 +2,8 @@
 const std = @import("std");
 const Io = std.Io;
 
+pub const kMaxVaryings = 64;
+
 pub const Vec4 = struct {
     x: f32,
     y: f32,
@@ -48,6 +50,15 @@ pub const Vec4 = struct {
             .y = a.y * b.y,
             .z = a.z * b.z,
             .w = a.w * b.w,
+        };
+    }
+
+    fn lerp(alpha: f32, b: Vec4, c: Vec4) Vec4 {
+        return Vec4{
+            .x = lerpf32(alpha, b.x, c.x),
+            .y = lerpf32(alpha, b.y, c.y),
+            .z = lerpf32(alpha, b.z, c.z),
+            .w = lerpf32(alpha, b.w, c.w),
         };
     }
 
@@ -166,9 +177,10 @@ pub const Varyings = struct {
 };
 
 pub const Varying = []Vec4;
+pub const Varying2 = [kMaxVaryings]Vec4;
 
 pub const VertexShader = fn (Attribute: anytype, uniforms: anytype, out: Varying) Vec4;
-pub const FragmentShader = fn (varying: []Vec4, uniforms: anytype) Vec4;
+pub const FragmentShader = fn (varying: Varying, uniforms: anytype) Vec4;
 
 pub const Pipeline = struct {
     vertexShade: VertexShader,
@@ -292,7 +304,7 @@ pub fn drawTriangles(pipeline: Pipeline, attributes: []const pipeline.attributes
         for (0..3) |j| {
             triangle.v[j] = pipeline.vertexShade(attributes[i + j], uniforms, varyings.v[j]);
         }
-        drawTriangle(framebuffer, triangle, pipeline, varyings, uniforms);
+        drawTriangle_2(framebuffer, triangle, pipeline, varyings, uniforms);
     }
 }
 
@@ -403,6 +415,259 @@ pub fn drawTriangle(framebuffer: FrameBuffer, triangle: Triangle, pipeline: Pipe
                 framebuffer.setPixel(x, y, color);
             }
         }
+    }
+}
+
+fn swap(T: type, a: T, b: T) struct { T, T } {
+    const t = a;
+    return .{ b, t };
+}
+
+fn unlerp(a: f32, b: f32, c: f32) f32 {
+    return (a - b) / (c - b);
+}
+
+fn lerpf32(alpha: f32, b: f32, c: f32) f32 {
+    return b + (c - b) * alpha;
+}
+
+fn lerpVarying(alpha: f32, b: Varying2, c: Varying2) Varying2 {
+    var out: Varying2 = undefined;
+    for (0..b.len) |i| {
+        out[i] = Vec4.lerp(alpha, b[i], c[i]);
+    }
+    return out;
+}
+
+const Corner = struct {
+    x: f32,
+    z: f32,
+    ow: f32,
+    v: Varying2,
+    v_len: usize,
+
+    fn lerp(alpha: f32, b: Corner, c: Corner) Corner {
+        return Corner{
+            .x = lerpf32(alpha, b.x, c.x),
+            .z = lerpf32(alpha, b.z, c.z),
+            .ow = lerpf32(alpha, b.ow, c.ow),
+            .v = lerpVarying(alpha, b.v, c.v),
+            .v_len = b.v_len,
+        };
+    }
+
+    fn add(a: Corner, b: Corner) Corner {
+        var v: Varying2 = undefined;
+        for (0..a.v_len) |i| {
+            v[i] = Vec4.add(a.v[i], b.v[i]);
+        }
+        return Corner{
+            .x = a.x + b.x,
+            .z = a.z + b.z,
+            .ow = a.ow + b.ow,
+            .v = v,
+            .v_len = a.v_len,
+        };
+    }
+
+    fn sub(a: Corner, b: Corner) Corner {
+        var v: Varying2 = undefined;
+        for (0..a.v_len) |i| {
+            v[i] = Vec4.sub(a.v[i], b.v[i]);
+        }
+        return Corner{
+            .x = a.x - b.x,
+            .z = a.z - b.z,
+            .ow = a.ow - b.ow,
+            .v = v,
+            .v_len = a.v_len,
+        };
+    }
+
+    fn mul(a: Corner, b: f32) Corner {
+        var v: Varying2 = undefined;
+        for (0..a.v_len) |i| {
+            v[i] = Vec4.mul(a.v[i], b);
+        }
+        return Corner{
+            .x = a.x * b,
+            .z = a.z * b,
+            .ow = a.ow * b,
+            .v = v,
+            .v_len = a.v_len,
+        };
+    }
+};
+
+const Trapezoid = struct {
+    top: f32,
+    bottom: f32,
+    top_left: Corner,
+    top_right: Corner,
+    bottom_left: Corner,
+    bottom_right: Corner,
+};
+
+pub fn drawTriangle_2(
+    framebuffer: FrameBuffer,
+    triangle: Triangle,
+    pipeline: Pipeline,
+    varyings: Varyings,
+    uniforms: anytype,
+) void {
+    var a: [3]Vec4 = undefined;
+    var ow: [3]f32 = undefined;
+    var v: [3]Varying2 = undefined;
+    if (pipeline.varyings_len > kMaxVaryings) {
+        return;
+    }
+    for (0..3) |i| {
+        // divide by w to convert to NDC
+        ow[i] = 1.0 / triangle.v[i].w;
+        a[i] = triangle.v[i].mul(ow[i]);
+        // offset and mult by screen size
+        a[i].x = (a[i].x + 1.0) * 0.5 * @as(f32, @floatFromInt(framebuffer.width()));
+        a[i].y = (a[i].y + 1.0) * 0.5 * @as(f32, @floatFromInt(framebuffer.height()));
+        // divide varyings by w
+        for (0..pipeline.varyings_len) |j| {
+            v[i][j] = varyings.v[i][j].mul(ow[i]);
+        }
+    }
+    if (a[0].y == a[1].y and a[1].y == a[2].y) {
+        return;
+    }
+    // sort by height
+    if (a[1].y < a[0].y) {
+        a[0], a[1] = swap(Vec4, a[0], a[1]);
+        ow[0], ow[1] = swap(f32, ow[0], ow[1]);
+        v[0], v[1] = swap(Varying2, v[0], v[1]);
+    }
+    if (a[2].y < a[1].y) {
+        a[1], a[2] = swap(Vec4, a[1], a[2]);
+        ow[1], ow[2] = swap(f32, ow[1], ow[2]);
+        v[1], v[2] = swap(Varying2, v[1], v[2]);
+    }
+    if (a[1].y < a[0].y) {
+        a[0], a[1] = swap(Vec4, a[0], a[1]);
+        ow[0], ow[1] = swap(f32, ow[0], ow[1]);
+        v[0], v[1] = swap(Varying2, v[0], v[1]);
+    }
+    // divide into two
+    //      0
+    //      |\
+    //      | \
+    // left |-- 1
+    //      | /
+    //      |/
+    //      2
+    var c: [3]Corner = undefined;
+    for (0..3) |i| {
+        c[i] = Corner{
+            .x = a[i].x,
+            .z = a[i].z,
+            .ow = ow[i],
+            .v = v[i],
+            .v_len = pipeline.varyings_len,
+        };
+    }
+
+    const alpha = unlerp(a[1].y, a[0].y, a[2].y);
+    var left = Corner{
+        .x = lerpf32(alpha, a[0].x, a[2].x),
+        .z = lerpf32(alpha, a[0].z, a[2].z),
+        .ow = lerpf32(alpha, ow[0], ow[2]),
+        .v = lerpVarying(alpha, v[0], v[2]),
+        .v_len = pipeline.varyings_len,
+    };
+    if (left.x > c[1].x) {
+        left, c[1] = swap(Corner, left, c[1]);
+    }
+    const top = Trapezoid{
+        .top = a[0].y,
+        .bottom = a[1].y,
+        .top_left = c[0],
+        .top_right = c[0],
+        .bottom_left = left,
+        .bottom_right = c[1],
+    };
+    drawTrapezoid(framebuffer, top, pipeline, uniforms);
+    const bottom = Trapezoid{
+        .top = a[1].y,
+        .bottom = a[2].y,
+        .top_left = left,
+        .top_right = c[1],
+        .bottom_left = c[2],
+        .bottom_right = c[2],
+    };
+    drawTrapezoid(framebuffer, bottom, pipeline, uniforms);
+}
+
+pub fn drawTrapezoid(framebuffer: FrameBuffer, trapezoid: Trapezoid, pipeline: Pipeline, uniforms: anytype) void {
+    const screen_bottom = @as(f32, @floatFromInt(framebuffer.height()));
+    const top = @min(@max(@round(trapezoid.top) + 0.5, 0.5), screen_bottom - 0.5);
+    const bottom = @min(@max(@round(trapezoid.bottom) - 0.5, 0.5), screen_bottom - 0.5);
+    const count = bottom - top;
+    if (count <= 0) {
+        return;
+    }
+
+    const top_alpha = unlerp(top, trapezoid.top, trapezoid.bottom);
+    // adjust the tops of the edges by top_alpha
+    const top_left = Corner.lerp(top_alpha, trapezoid.top_left, trapezoid.bottom_left);
+    const top_right = Corner.lerp(top_alpha, trapezoid.top_right, trapezoid.bottom_right);
+
+    const bottom_alpha = unlerp(bottom, trapezoid.top, trapezoid.bottom);
+    // adjust the bottoms of the edges by bottom alpha
+    const bottom_left = Corner.lerp(bottom_alpha, trapezoid.top_left, trapezoid.bottom_left);
+    const bottom_right = Corner.lerp(bottom_alpha, trapezoid.top_right, trapezoid.bottom_right);
+
+    const delta_left = bottom_left.sub(top_left).mul(1 / count);
+    const delta_right = bottom_right.sub(top_right).mul(1 / count);
+
+    var left = top_left;
+    var right = top_right;
+    const counti: usize = @intFromFloat(count + 1);
+    for (0..counti) |i| {
+        const y: f32 = top + @as(f32, @floatFromInt(i));
+        drawHLine(framebuffer, y, left, right, pipeline, uniforms);
+        left = left.add(delta_left);
+        right = right.add(delta_right);
+    }
+}
+
+pub fn drawHLine(framebuffer: FrameBuffer, y: f32, left: Corner, right: Corner, pipeline: Pipeline, uniforms: anytype) void {
+    const screen_right = @as(f32, @floatFromInt(framebuffer.width()));
+    const left_x = @min(@max(@round(left.x) + 0.5, 0.5), screen_right - 0.5);
+    const right_x = @min(@max(@round(right.x) - 0.5, 0.5), screen_right - 0.5);
+    const count = right_x - left_x;
+    if (count <= 0) {
+        return;
+    }
+    const left_alpha = unlerp(left_x, left.x, right.x);
+    const right_alpha = unlerp(right_x, left.x, right.x);
+    const left_adj = Corner.lerp(left_alpha, left, right);
+    const right_adj = Corner.lerp(right_alpha, left, right);
+    const delta = right_adj.sub(left_adj).mul(1 / count);
+    const left_xi: usize = @intFromFloat(left_x);
+    const counti: usize = @intFromFloat(count + 1);
+    const yi: usize = @intFromFloat(y);
+    var v = left_adj;
+    for (0..counti) |i| {
+        const xi = left_xi + i;
+        const depth = v.z;
+        if (depth < framebuffer.getDepth(xi, yi)) {
+            framebuffer.setDepth(xi, yi, depth);
+            var vv = v.v;
+            // divide by (1/w) to get perpective correct interpolation
+            const w_int = 1.0 / v.ow;
+            for (0..vv.len) |ii| {
+                vv[ii] = vv[ii].mul(w_int);
+            }
+            const color_v4 = pipeline.fragmentShade(&vv, uniforms);
+            const color = Color.fromVec4(color_v4);
+            framebuffer.setPixel(xi, yi, color);
+        }
+        v = v.add(delta);
     }
 }
 
