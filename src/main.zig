@@ -11,7 +11,7 @@ const Attribute = struct {
 const Uniforms = struct {
     offset: zigrast.Vec4,
     proj: zigrast.Mat4,
-    tex: zigrast.Image,
+    tex: zigrast.Texture,
 };
 
 fn vs(attribute: Attribute, uniforms: anytype, out: zigrast.Varying) zigrast.Vec4 {
@@ -21,7 +21,7 @@ fn vs(attribute: Attribute, uniforms: anytype, out: zigrast.Varying) zigrast.Vec
 }
 
 fn fs(varying: zigrast.Varying, uniforms: anytype) zigrast.Vec4 {
-    const s = uniforms.tex.sampleNearest(varying[1].x, varying[1].y);
+    const s = uniforms.tex.sampleMipMapLinear(varying[1].x, varying[1].y, 1.5);
     return varying[0].mulV4(s);
 }
 
@@ -135,15 +135,20 @@ pub fn main(init: std.process.Init) !void {
         p.uv = zigrast.Vec2{ .x = p.uv.x * plane_scale, .y = p.uv.y * plane_scale };
     }
 
-    const texture = try zigrast.Image.init(arena, 2, 2);
-    defer texture.deinit(arena);
+    const checker = try zigrast.Image.init(arena, 16, 16);
 
     const black = zigrast.Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const white = zigrast.Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    texture.setPixel(0, 0, black);
-    texture.setPixel(1, 0, white);
-    texture.setPixel(0, 1, white);
-    texture.setPixel(1, 1, black);
+    for (0..8) |j| {
+        for (0..8) |i| {
+            checker.setPixel(i, j, black);
+            checker.setPixel(i + 8, j, white);
+            checker.setPixel(i, j + 8, white);
+            checker.setPixel(i + 8, j + 8, black);
+        }
+    }
+    const texture = try zigrast.Texture.init(arena, checker);
+    defer texture.deinit(arena);
 
     var uniforms = Uniforms{
         .offset = zigrast.Vec4{ .x = -1.0, .y = -1.0, .z = -2.0, .w = 0.0 },
@@ -176,6 +181,26 @@ pub fn main(init: std.process.Init) !void {
     var buffer: [1024]u8 = undefined;
     var w: Io.File.Writer = .init(file, io, &buffer);
     try zigrast.writeToTga(&w.interface, image);
+
+    for (texture.images, 0..) |level, i| {
+        const path = try std.fmt.allocPrint(
+            arena,
+            "checker{d}.tga",
+            .{i},
+        );
+        defer arena.free(path);
+        const level_file = try Io.Dir.createFile(
+            Io.Dir.cwd(),
+            io,
+            path,
+            .{},
+        );
+        defer level_file.close(io);
+        var writer: Io.File.Writer = .init(level_file, io, &buffer);
+        std.debug.print("writing {s} {d}x{d}\n", .{ path, level.width, level.height });
+        try zigrast.writeToTga(&writer.interface, level);
+        try writer.flush();
+    }
 }
 
 test "simple test" {

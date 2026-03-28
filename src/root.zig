@@ -236,6 +236,105 @@ pub const Image = struct {
         const y: usize = @as(usize, @intFromFloat(@mod(v, 1.0) * @as(f32, @floatFromInt(self.height))));
         return Color.toVec4(self.getPixel(x, y));
     }
+
+    pub fn sampleLinear(self: Image, u: f32, v: f32) Vec4 {
+        const wf = @as(f32, @floatFromInt(self.width));
+        const hf = @as(f32, @floatFromInt(self.height));
+        const xf = @mod(u, 1.0) * (wf - 1);
+        const yf = @mod(v, 1.0) * (hf - 1);
+        const ax = xf - @floor(xf);
+        const ay = yf - @floor(yf);
+        const x = @as(usize, @intFromFloat(xf));
+        const y = @as(usize, @intFromFloat(yf));
+        const xn = @as(usize, @intFromFloat(@mod(xf + 1, wf)));
+        const yn = @as(usize, @intFromFloat(@mod(yf + 1, hf)));
+        const a = Color.toVec4(self.getPixel(x, y));
+        const b = Color.toVec4(self.getPixel(xn, y));
+        const c = Color.toVec4(self.getPixel(x, yn));
+        const d = Color.toVec4(self.getPixel(xn, yn));
+        const ab = Vec4.lerp(ax, a, b);
+        const cd = Vec4.lerp(ax, c, d);
+        return Vec4.lerp(ay, ab, cd);
+    }
+};
+
+pub const Texture = struct {
+    images: []Image,
+
+    pub fn deinit(self: Texture, allocator: std.mem.Allocator) void {
+        for (0..self.images.len) |i| {
+            self.images[i].deinit(allocator);
+        }
+        allocator.free(self.images);
+    }
+
+    pub fn sampleNearest(self: Texture, u: f32, v: f32) Vec4 {
+        if (self.images.len == 0) {
+            return Vec4{ .x = 0, .y = 0, .z = 0, .w = 0 };
+        }
+        return self.images[0].sampleNearest(u, v);
+    }
+
+    pub fn sampleLinear(self: Texture, u: f32, v: f32) Vec4 {
+        if (self.images.len == 0) {
+            return Vec4{ .x = 0, .y = 0, .z = 0, .w = 0 };
+        }
+        return self.images[0].sampleLinear(u, v);
+    }
+
+    pub fn sampleMipMapLinear(self: Texture, u: f32, v: f32, level: f32) Vec4 {
+        if (self.images.len == 0) {
+            return Vec4{ .x = 0, .y = 0, .z = 0, .w = 0 };
+        }
+        if (level <= 0) {
+            return self.images[0].sampleLinear(u, v);
+        }
+        const l0 = @max(0, @as(usize, @intFromFloat(level)));
+        if (l0 >= self.images.len) {
+            return self.images[self.images.len - 1].sampleLinear(u, v);
+        }
+        const al = level - @floor(level);
+        const l1 = @min(self.images.len - 1, l0 + 1);
+        const a = self.images[l0].sampleLinear(u, v);
+        const b = self.images[l1].sampleLinear(u, v);
+        return Vec4.lerp(al, a, b);
+    }
+
+    pub fn init(allocator: std.mem.Allocator, root: Image) !Texture {
+        const levels = 1 + @as(
+            usize,
+            @intFromFloat(@max(
+                @ceil(@log2(@as(f32, @floatFromInt(root.width)))),
+                @ceil(@log2(@as(f32, @floatFromInt(root.height)))),
+            )),
+        );
+        var images = try allocator.alloc(Image, levels);
+        images[0] = root;
+        var w = @max(1, root.width / 2);
+        var h = @max(1, root.height / 2);
+        for (1..levels) |i| {
+            images[i] = try Image.init(allocator, w, h);
+            for (0..h) |y| {
+                for (0..w) |x| {
+                    const up = images[i - 1];
+                    const xup = x * up.width / w;
+                    const yup = y * up.height / h;
+                    const a = Color.toVec4(up.getPixel(xup, yup));
+                    const b = Color.toVec4(up.getPixel(xup + 1, yup));
+                    const c = Color.toVec4(up.getPixel(xup, yup + 1));
+                    const d = Color.toVec4(up.getPixel(xup + 1, yup + 1));
+
+                    images[i].setPixel(x, y, Color.fromVec4(a.add(b).add(c).add(d).mul(0.25)));
+                }
+            }
+            w = @max(1, w / 2);
+            h = @max(1, h / 2);
+        }
+
+        return Texture{
+            .images = images,
+        };
+    }
 };
 
 pub const DepthBuffer = struct {
