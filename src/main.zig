@@ -20,8 +20,15 @@ fn vs(attribute: Attribute, uniforms: anytype, out: zigrast.Varying) zigrast.Vec
     return uniforms.proj.mulv4(attribute.pos.add(uniforms.offset));
 }
 
-fn fs(varying: zigrast.Varying, uniforms: anytype) zigrast.Vec4 {
-    const s = uniforms.tex.sampleMipMapLinear(varying[1].x, varying[1].y, 1.5);
+fn fs(varying: zigrast.Varying, uniforms: anytype, grad_x: varying, grad_y: varying) zigrast.Vec4 {
+    const uv = zigrast.Vec2{ .x = varying[1].x, .y = varying[1].y };
+    const lod = zigrast.LOD(
+        zigrast.Vec2{ .x = grad_x[1].x, .y = grad_x[1].y },
+        zigrast.Vec2{ .x = grad_y[1].x, .y = grad_y[1].y },
+        uniforms.tex.size,
+    );
+
+    const s = uniforms.tex.sampleMipMapLinear(uv.x, uv.y, lod);
     return varying[0].mulV4(s);
 }
 
@@ -135,16 +142,17 @@ pub fn main(init: std.process.Init) !void {
         p.uv = zigrast.Vec2{ .x = p.uv.x * plane_scale, .y = p.uv.y * plane_scale };
     }
 
-    const checker = try zigrast.Image.init(arena, 16, 16);
+    const checker_size = 128;
+    const checker = try zigrast.Image.init(arena, checker_size, checker_size);
 
     const black = zigrast.Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const white = zigrast.Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    for (0..8) |j| {
-        for (0..8) |i| {
+    for (0..checker_size / 2) |j| {
+        for (0..checker_size / 2) |i| {
             checker.setPixel(i, j, black);
-            checker.setPixel(i + 8, j, white);
-            checker.setPixel(i, j + 8, white);
-            checker.setPixel(i + 8, j + 8, black);
+            checker.setPixel(i + checker_size / 2, j, white);
+            checker.setPixel(i, j + checker_size / 2, white);
+            checker.setPixel(i + checker_size / 2, j + checker_size / 2, black);
         }
     }
     const texture = try zigrast.Texture.init(arena, checker);

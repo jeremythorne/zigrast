@@ -119,6 +119,21 @@ pub const Vec2 = struct {
             .y = v.y,
         };
     }
+
+    pub fn mulV2(a: Vec2, b: Vec2) Vec2 {
+        return Vec2{
+            .x = a.x * b.x,
+            .y = a.x * b.y,
+        };
+    }
+
+    pub fn dot(a: Vec2, b: Vec2) f32 {
+        return a.x * b.x + a.y * b.y;
+    }
+
+    pub fn length(v: Vec2) f32 {
+        return @sqrt(v.dot(v));
+    }
 };
 
 const Vec2i = struct {
@@ -176,11 +191,15 @@ pub const Varyings = struct {
     }
 };
 
+pub fn LOD(duvdx: Vec2, duvdy: Vec2, tex_size: Vec2) f32 {
+    return @log2(@max(duvdx.mulV2(tex_size).length(), duvdy.mulV2(tex_size).length()));
+}
+
 pub const Varying = []Vec4;
 pub const Varying2 = [kMaxVaryings]Vec4;
 
 pub const VertexShader = fn (Attribute: anytype, uniforms: anytype, out: Varying) Vec4;
-pub const FragmentShader = fn (varying: Varying, uniforms: anytype) Vec4;
+pub const FragmentShader = fn (varying: Varying, uniforms: anytype, grad_x: Varying, grad_y: Varying) Vec4;
 
 pub const Pipeline = struct {
     vertexShade: VertexShader,
@@ -259,6 +278,7 @@ pub const Image = struct {
 };
 
 pub const Texture = struct {
+    size: Vec2,
     images: []Image,
 
     pub fn deinit(self: Texture, allocator: std.mem.Allocator) void {
@@ -332,6 +352,7 @@ pub const Texture = struct {
         }
 
         return Texture{
+            .size = Vec2{ .x = @floatFromInt(images[0].width), .y = @floatFromInt(images[0].height) },
             .images = images,
         };
     }
@@ -723,50 +744,97 @@ pub fn drawTrapezoid(framebuffer: FrameBuffer, trapezoid: Trapezoid, pipeline: P
     const delta_left = bottom_left.sub(top_left).mul(1 / count);
     const delta_right = bottom_right.sub(top_right).mul(1 / count);
 
-    var left = top_left;
-    var right = top_right;
-    const counti: usize = @intFromFloat(count + 1);
-    for (0..counti) |i| {
+    var left = [2]Corner{ top_left, top_left.add(delta_left) };
+    var right = [2]Corner{ top_right, top_right.add(delta_right) };
+    const counti: usize = @intFromFloat(count);
+    var i: usize = 0;
+    while (i < counti) {
         const y: f32 = top + @as(f32, @floatFromInt(i));
-        drawHLine(framebuffer, y, left, right, pipeline, uniforms);
-        left = left.add(delta_left);
-        right = right.add(delta_right);
+        draw2HLine(framebuffer, y, left, right, pipeline, uniforms, i + 1 < counti);
+        left[0] = left[1].add(delta_left);
+        right[0] = right[1].add(delta_right);
+        left[1] = left[0].add(delta_left);
+        right[1] = right[0].add(delta_right);
+        i += 2;
     }
 }
 
-pub fn drawHLine(framebuffer: FrameBuffer, y: f32, left: Corner, right: Corner, pipeline: Pipeline, uniforms: anytype) void {
+pub fn draw2HLine(
+    framebuffer: FrameBuffer,
+    y: f32,
+    left: [2]Corner,
+    right: [2]Corner,
+    pipeline: Pipeline,
+    uniforms: anytype,
+    bottom_line_in: bool,
+) void {
     const screen_right = @as(f32, @floatFromInt(framebuffer.width()));
-    const left_x = @min(@max(@round(left.x) + 0.5, 0.5), screen_right - 0.5);
-    const right_x = @min(@max(@round(right.x) - 0.5, 0.5), screen_right - 0.5);
-    const count = right_x - left_x;
-    if (count <= 0) {
+    var left_adj: [2]Corner = undefined;
+    var delta: [2]Corner = undefined;
+    var left_x: [2]f32 = undefined;
+    var right_x: [2]f32 = undefined;
+    for (0..2) |i| {
+        left_x[i] = @max(@round(left[i].x) + 0.5, 0.5);
+        right_x[i] = @min(@round(right[i].x) - 0.5, screen_right - 0.5);
+    }
+    const min_x = @min(left_x[0], left_x[1]);
+    const max_x = @max(right_x[0], right_x[1]);
+    if (min_x > max_x) {
         return;
     }
-    const left_alpha = unlerp(left_x, left.x, right.x);
-    const right_alpha = unlerp(right_x, left.x, right.x);
-    const left_adj = Corner.lerp(left_alpha, left, right);
-    const right_adj = Corner.lerp(right_alpha, left, right);
-    const delta = right_adj.sub(left_adj).mul(1 / count);
-    const left_xi: usize = @intFromFloat(left_x);
-    const counti: usize = @intFromFloat(count + 1);
+    for (0..2) |i| {
+        const count = max_x - min_x;
+        const left_alpha = unlerp(min_x, left[i].x, right[i].x);
+        const right_alpha = unlerp(max_x, left[i].x, right[i].x);
+        left_adj[i] = Corner.lerp(left_alpha, left[i], right[i]);
+        const right_adj = Corner.lerp(right_alpha, left[i], right[i]);
+        delta[i] = right_adj.sub(left_adj[i]).mul(1 / count);
+    }
     const yi: usize = @intFromFloat(y);
-    var v = left_adj;
-    for (0..counti) |i| {
-        const xi = left_xi + i;
-        const depth = v.z;
-        if (depth < framebuffer.getDepth(xi, yi)) {
-            framebuffer.setDepth(xi, yi, depth);
-            var vv = v.v;
-            // divide by (1/w) to get perpective correct interpolation
-            const w_int = 1.0 / v.ow;
-            for (0..vv.len) |ii| {
-                vv[ii] = vv[ii].mul(w_int);
+    var v: [2][2]Corner = undefined;
+    v[0][0] = left_adj[0];
+    v[0][1] = left_adj[0].add(delta[0]);
+    v[1][0] = left_adj[1];
+    v[1][1] = left_adj[1].add(delta[1]);
+    var xi: usize = @intFromFloat(min_x);
+    const max_xi: usize = @intFromFloat(max_x);
+    while (xi <= max_xi) {
+        var grad_x: Varying2 = undefined;
+        var grad_y: Varying2 = undefined;
+        {
+            const w_int00 = 1.0 / (v[0][0].ow + 0.000001);
+            const w_int01 = 1.0 / (v[0][1].ow + 0.000001);
+            const w_int10 = 1.0 / (v[1][0].ow + 0.000001);
+            for (0..grad_x.len) |ii| {
+                const v00 = v[0][0].v[ii].mul(w_int00);
+                grad_x[ii] = v[0][1].v[ii].mul(w_int01).sub(v00);
+                grad_y[ii] = v[1][0].v[ii].mul(w_int10).sub(v00);
             }
-            const color_v4 = pipeline.fragmentShade(&vv, uniforms);
-            const color = Color.fromVec4(color_v4);
-            framebuffer.setPixel(xi, yi, color);
         }
-        v = v.add(delta);
+        for (0..2) |i| {
+            for (0..2) |j| {
+                if ((i == 0 or bottom_line_in) and
+                    xi + j >= @as(usize, @intFromFloat(left_x[i])) and xi + j <= @as(usize, @intFromFloat(right_x[i])))
+                {
+                    const depth = v[i][j].z;
+                    if (depth < framebuffer.getDepth(xi + j, yi + i)) {
+                        framebuffer.setDepth(xi + j, yi + i, depth);
+                        var vv = v[i][j].v;
+                        // divide by (1/w) to get perpective correct interpolation
+                        const w_int = 1.0 / (v[i][j].ow + 0.000001);
+                        for (0..vv.len) |ii| {
+                            vv[ii] = vv[ii].mul(w_int);
+                        }
+                        const color_v4 = pipeline.fragmentShade(&vv, uniforms, &grad_x, &grad_y);
+                        const color = Color.fromVec4(color_v4);
+                        framebuffer.setPixel(xi + j, yi + i, color);
+                    }
+                }
+            }
+            v[i][0] = v[i][1].add(delta[i]);
+            v[i][1] = v[i][0].add(delta[i]);
+        }
+        xi += 2;
     }
 }
 
