@@ -90,6 +90,42 @@ pub const Mat4 = struct {
         };
     }
 
+    pub fn equal(a: Mat4, b: Mat4) bool {
+        for (0..4) |i| {
+            for (0..4) |j| {
+                const off = j + i * 4;
+                if (a.a[off] != b.a[off]) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    pub fn mul(a: Mat4, b: Mat4) Mat4 {
+        return Mat4{ .a = [_]f32{
+            a.a[0] * b.a[0] + a.a[1] * b.a[4] + a.a[2] * b.a[8] + a.a[3] * b.a[12],
+            a.a[0] * b.a[1] + a.a[1] * b.a[5] + a.a[2] * b.a[9] + a.a[3] * b.a[13],
+            a.a[0] * b.a[2] + a.a[1] * b.a[6] + a.a[2] * b.a[10] + a.a[3] * b.a[14],
+            a.a[0] * b.a[3] + a.a[1] * b.a[7] + a.a[2] * b.a[11] + a.a[3] * b.a[15],
+
+            a.a[4] * b.a[0] + a.a[5] * b.a[4] + a.a[6] * b.a[8] + a.a[7] * b.a[12],
+            a.a[4] * b.a[1] + a.a[5] * b.a[5] + a.a[6] * b.a[9] + a.a[7] * b.a[13],
+            a.a[4] * b.a[2] + a.a[5] * b.a[6] + a.a[6] * b.a[10] + a.a[7] * b.a[14],
+            a.a[4] * b.a[3] + a.a[5] * b.a[7] + a.a[6] * b.a[11] + a.a[7] * b.a[15],
+
+            a.a[8] * b.a[0] + a.a[9] * b.a[4] + a.a[10] * b.a[8] + a.a[11] * b.a[12],
+            a.a[8] * b.a[1] + a.a[9] * b.a[5] + a.a[10] * b.a[9] + a.a[11] * b.a[13],
+            a.a[8] * b.a[2] + a.a[9] * b.a[6] + a.a[10] * b.a[10] + a.a[11] * b.a[14],
+            a.a[8] * b.a[3] + a.a[9] * b.a[7] + a.a[10] * b.a[11] + a.a[11] * b.a[15],
+
+            a.a[12] * b.a[0] + a.a[13] * b.a[4] + a.a[14] * b.a[8] + a.a[15] * b.a[12],
+            a.a[12] * b.a[1] + a.a[13] * b.a[5] + a.a[14] * b.a[9] + a.a[15] * b.a[13],
+            a.a[12] * b.a[2] + a.a[13] * b.a[6] + a.a[14] * b.a[10] + a.a[15] * b.a[14],
+            a.a[12] * b.a[3] + a.a[13] * b.a[7] + a.a[14] * b.a[11] + a.a[15] * b.a[15],
+        } };
+    }
+
     pub fn init_projection(r: f32, t: f32, n: f32, f: f32) Mat4 {
         return Mat4{
             .a = [_]f32{
@@ -899,4 +935,12 @@ test "point in triangle" {
 
     const p4 = Vec2{ .x = 0.0, .y = 0.5 };
     try std.testing.expect(pointInTriangle(p4, a, b, c) == false);
+}
+
+test "mat4 mul itentity" {
+    const a = Mat4.init();
+    const b = Mat4.init();
+    try std.testing.expect(Mat4.equal(a, b));
+    const c = Mat4.mul(a, b);
+    try std.testing.expect(Mat4.equal(a, c));
 }
