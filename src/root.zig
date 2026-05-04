@@ -62,6 +62,20 @@ pub const Vec4 = struct {
         };
     }
 
+    fn length(a: Vec4) f32 {
+        return std.math.sqrt(a.dot(a));
+    }
+
+    fn normalize(a: Vec4) Vec4 {
+        const len = a.length();
+        return Vec4{
+            .x = a.x / len,
+            .y = a.y / len,
+            .z = a.z / len,
+            .w = a.w / len,
+        };
+    }
+
     pub fn debug_print(a: Vec4) void {
         std.debug.print("{} {} {} {}\n", .{ a.x, a.y, a.z, a.w });
     }
@@ -125,6 +139,11 @@ pub const Mat4 = struct {
             a.a[12] * b.a[3] + a.a[13] * b.a[7] + a.a[14] * b.a[11] + a.a[15] * b.a[15],
         } };
     }
+
+    // pub fn init_lookat(_eye: Vec4, _target: Vec4, upDir: Vec4) Mat4 {
+    //     // const forward = eye.sub(target).normalize();
+    //     // TODO
+    // }
 
     pub fn init_projection(r: f32, t: f32, n: f32, f: f32) Mat4 {
         return Mat4{
@@ -943,4 +962,17 @@ test "mat4 mul itentity" {
     try std.testing.expect(Mat4.equal(a, b));
     const c = Mat4.mul(a, b);
     try std.testing.expect(Mat4.equal(a, c));
+}
+
+test "Vec4 length" {
+    const a = Vec4{ .x = 3, .y = 4, .z = 0, .w = 0 };
+    const b = a.length();
+    try std.testing.expect(b == 5);
+}
+
+test "Vec4 normalize" {
+    const a = Vec4{ .x = 3, .y = 4, .z = 5, .w = 6 };
+    const b = a.normalize();
+    std.debug.print("{}\n", .{b.length()});
+    try std.testing.expectApproxEqAbs(1, b.length(), 0.0000001);
 }
